@@ -436,6 +436,138 @@ def get_repo_branches(repo_name: str) -> str:
 
 
 # ==========================================
+# GitHub WRITE Tools (require GITHUB_ALLOW_WRITES=true)
+# ==========================================
+
+ALLOW_WRITES = os.getenv("GITHUB_ALLOW_WRITES", "false").lower() == "true"
+
+
+def _write_guard():
+    if not ALLOW_WRITES:
+        return "⛔ Write operations DISABLED. Set: export GITHUB_ALLOW_WRITES=true"
+    if not GITHUB_TOKEN:
+        return "❌ GITHUB_TOKEN not set."
+    return None
+
+
+@mcp.tool
+def create_repo(repo_name: str, description: str = "", private: bool = False) -> str:
+    """Create a new GitHub repository. ⚠️ Requires GITHUB_ALLOW_WRITES=true"""
+    guard = _write_guard()
+    if guard:
+        return guard
+    try:
+        from github import Github
+        g = Github(GITHUB_TOKEN)
+        user = g.get_user(GITHUB_OWNER)
+        repo = user.create_repo(name=repo_name, description=description, private=private, auto_init=True)
+        return f"✅ Repo created: {repo.html_url}\n   Clone: git clone {repo.clone_url}"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+
+@mcp.tool
+def create_branch(repo_name: str, branch_name: str, from_branch: str = "main") -> str:
+    """Create a new branch from an existing branch. ⚠️ Requires GITHUB_ALLOW_WRITES=true"""
+    guard = _write_guard()
+    if guard:
+        return guard
+    try:
+        from github import Github
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(f"{GITHUB_OWNER}/{repo_name}")
+        base = repo.get_branch(from_branch)
+        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=base.commit.sha)
+        return f"✅ Branch '{branch_name}' created from '{from_branch}'"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+
+@mcp.tool
+def push_file(repo_name: str, file_path: str, content: str, commit_message: str, branch: str = "main") -> str:
+    """Create or update a file in a repo. ⚠️ Requires GITHUB_ALLOW_WRITES=true"""
+    guard = _write_guard()
+    if guard:
+        return guard
+    try:
+        from github import Github
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(f"{GITHUB_OWNER}/{repo_name}")
+        try:
+            existing = repo.get_contents(file_path, ref=branch)
+            result = repo.update_file(file_path, commit_message, content, existing.sha, branch=branch)
+            action = "updated"
+        except Exception:
+            result = repo.create_file(file_path, commit_message, content, branch=branch)
+            action = "created"
+        return f"✅ File {action}: {file_path}\n   Commit: {result['commit'].sha[:7]} — {commit_message}"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+
+@mcp.tool
+def create_pull_request(repo_name: str, title: str, body: str, head_branch: str, base_branch: str = "main") -> str:
+    """Create a PR for review before merging. ⚠️ Requires GITHUB_ALLOW_WRITES=true. Changes NOT merged until approved."""
+    guard = _write_guard()
+    if guard:
+        return guard
+    try:
+        from github import Github
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(f"{GITHUB_OWNER}/{repo_name}")
+        pr = repo.create_pull(title=title, body=body, head=head_branch, base=base_branch)
+        return (
+            f"✅ PR #{pr.number} created: {pr.title}\n"
+            f"   {head_branch} → {base_branch}\n"
+            f"   URL: {pr.html_url}\n"
+            f"⏳ Awaiting approval — NOT merged yet."
+        )
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+
+@mcp.tool
+def merge_pull_request(repo_name: str, pr_number: int, method: str = "squash") -> str:
+    """Merge an approved PR. ⚠️ Requires GITHUB_ALLOW_WRITES=true. Checks for approval first."""
+    guard = _write_guard()
+    if guard:
+        return guard
+    try:
+        from github import Github
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(f"{GITHUB_OWNER}/{repo_name}")
+        pr = repo.get_pull(pr_number)
+        reviews = list(pr.get_reviews())
+        approved = [r for r in reviews if r.state == "APPROVED"]
+        if not approved:
+            return f"⛔ PR #{pr_number} has no approvals yet. Get human review first."
+        if pr.state != "open":
+            return f"⛔ PR #{pr_number} is {pr.state} — cannot merge."
+        result = pr.merge(commit_message=f"Merge PR #{pr_number}: {pr.title}", merge_method=method)
+        return f"✅ PR #{pr_number} merged! SHA: {result.sha}"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+
+@mcp.tool
+def delete_repo(repo_name: str, confirm: str = "") -> str:
+    """Delete a repository permanently. ⚠️ Requires GITHUB_ALLOW_WRITES=true. Pass confirm='DELETE' to proceed."""
+    guard = _write_guard()
+    if guard:
+        return guard
+    if confirm != "DELETE":
+        return f"⛔ Pass confirm='DELETE' to delete '{repo_name}'. This is permanent."
+    try:
+        from github import Github
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(f"{GITHUB_OWNER}/{repo_name}")
+        repo.delete()
+        return f"✅ Repository '{GITHUB_OWNER}/{repo_name}' deleted."
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+
+# ==========================================
 # AWS Operations
 # ==========================================
 

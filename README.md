@@ -10,6 +10,8 @@ AI-powered DevOps monitoring platform combining:
 ## Architecture
 
 ```
+
+
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
 │  You: "Is anything broken? How did we fix this last time?"      │
